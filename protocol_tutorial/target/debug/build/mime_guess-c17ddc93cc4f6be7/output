@@ -1,1 +1,0 @@
-cargo:rustc-env=MIME_TYPES_GENERATED_PATH=/home/ubuntu2404/code_jm/deployProject/encoding_practice/protocol_tutorial/target/debug/build/mime_guess-c17ddc93cc4f6be7/out/mime_types_generated.rs
