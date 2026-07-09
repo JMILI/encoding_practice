@@ -1,0 +1,330 @@
+#pragma once
+
+#include <cstring>  // memset, memcpy
+
+namespace MyProtocol
+{
+    typedef int INT;              // 项目内简化类型名
+    typedef unsigned int UINT;
+
+    /**
+     * @class MyByte
+     * @brief 定长有符号多字节容器（Bits = 字节个数，非 bit 数）
+     *
+     * @tparam Bits 字节数组长度，如 MyByte<2> 表示 2 字节有符号
+     */
+    template<size_t Bits>
+    class MyByte
+    {
+    public:
+        /**
+         * @brief 默认构造：data 全部清零
+         * memset(ptr, value, count) — 从 ptr 起 count 字节设为 value
+         */
+        MyByte()
+        {
+            memset(data, 0x0, Bits);
+        }
+
+        /**
+         * @brief 从有符号整数构造
+         * @param v 整数值；负数时存绝对值并在最后一字节最高位置符号位 0x80
+         */
+        MyByte(INT v)
+        {
+            if (v < 0)
+            {
+                INT temp = -v;
+                memcpy(data, &temp, sizeof(MyByte));  // 拷贝低 Bits 字节
+                data[Bits - 1] |= 0x80;  // 最高字节的最高位作符号位
+            }
+            else
+            {
+                memcpy(data, &v, sizeof(MyByte));
+            }
+        }
+
+        char data[Bits];  ///< 原始字节存储，与线上布局一一对应
+
+        /**
+         * @brief 下标访问 data[i]；越界返回静态临时 0（可写但不应依赖）
+         * @return char& 引用，可修改 data[i]
+         */
+        char& operator[](int index)
+        {
+            char cTemp = 0;
+
+            if (index < 0 || index >= Bits)
+            {
+                return cTemp;  // 越界返回静态局部（非标准但原逻辑保留）
+            }
+            return data[index];
+        }
+
+        /**
+         * @brief 赋值运算符：从 INT 写入（含负数处理）
+         * @return *this 支持链式 a=b=c
+         */
+        MyByte & operator= (const INT v)
+        {
+            if (v < 0)
+            {
+                INT temp = -v;
+                memcpy(data, &temp, sizeof(MyByte));
+                data[Bits - 1] |= 0x80;
+            }
+            else
+            {
+                memcpy(data, &v, sizeof(MyByte));
+            }
+            return *this;
+        }
+
+        /** @brief 拷贝构造：逐字节复制 other.data */
+        MyByte(const MyByte& other)
+        {
+            memcpy(data, other.data, sizeof(MyByte));
+        }
+
+        /** @brief 拷贝赋值：自赋值检查后 memcpy */
+        MyByte & operator= (const MyByte &v)
+        {
+            if (this == &v)  // 防止 a=a 把数据拷没
+            {
+                return *this;
+            }
+
+            memcpy(data, &v, sizeof(MyByte));
+            return *this;
+        }
+
+        /** @brief 与 INT 比较是否相等 */
+        bool operator== (const INT &v)
+        {
+            INT res = this->operator INT();  // 先转为 INT
+            return res == v;
+        }
+
+        /**
+         * @brief 转为有符号 INT（非 const 版本）
+         * 从低到高累加各字节；最后一字节最高位为符号位
+         */
+        operator INT()
+        {
+            INT res = 0;
+
+            char flag = data[Bits - 1] & 0x80;  // 取符号位
+
+            int sign = 1;
+            if (flag)
+            {
+                sign = -1;
+            }
+
+            for (int i = 0; i < Bits; ++i)
+            {
+                int offset = i * 8;  // 第 i 字节左移 i*8 位
+                unsigned char value = data[i];
+
+                if (i == Bits - 1)
+                {
+                    value &= 0x7f;  // 符号字节去掉符号位再参与数值
+                }
+
+                res |= (value << offset);  // 按小端累加
+            }
+
+            return res * sign;
+        }
+
+        /** @brief 转为 INT（const 版本，逻辑同上） */
+        operator INT() const
+        {
+            INT res = 0;
+
+            char flag = data[Bits - 1] & 0x80;
+
+            int sign = 1;
+            if (flag)
+            {
+                sign = -1;
+            }
+
+            for (int i = 0; i < Bits; ++i)
+            {
+                int offset = i * 8;
+                unsigned char value = data[i];
+
+                if (i == Bits - 1)
+                {
+                    value &= 0x7f;
+                }
+
+                res |= (value << offset);
+            }
+
+            return res * sign;
+        }
+    };
+
+
+    /**
+     * @class MyUByte
+     * @brief 定长无符号多字节容器 — Info 载荷 body 使用此类
+     *
+     * @example MyUByte<4> 存 Pack1Info002 的 4 字节原始数据
+     */
+    template<size_t Bits>
+    class MyUByte
+    {
+    public:
+        /** @brief 默认构造：data 清零 */
+        MyUByte()
+        {
+            memset(data, 0x0, Bits);
+        }
+
+        /** @brief 从无符号 UINT 构造，memcpy 低 Bits 字节到 data */
+        MyUByte(UINT v)
+        {
+            memcpy(data, &v, sizeof(MyUByte));
+        }
+
+        char data[Bits];  ///< 线上原始字节，myProUtils 通过 body.data 访问
+
+        /**
+         * @brief 下标访问；越界返回 static char 0
+         */
+        char& operator[](int index)
+        {
+            static char cTemp = 0;  // static 保证返回引用合法
+
+            if (index < 0 || index >= Bits)
+            {
+                return cTemp;
+            }
+            return data[index];
+        }
+
+        /** @brief 从 UINT 赋值 */
+        MyUByte & operator= (const UINT v)
+        {
+            memcpy(data, &v, sizeof(MyUByte));
+            return *this;
+        }
+
+        MyUByte(const MyUByte& other)
+        {
+            memcpy(data, other.data, sizeof(MyUByte));
+        }
+
+        MyUByte & operator= (const MyUByte &v)
+        {
+            if (this == &v)
+            {
+                return *this;
+            }
+
+            memcpy(data, &v, sizeof(MyUByte));
+            return *this;
+        }
+
+        bool operator== (const UINT &v)
+        {
+            UINT res = this->operator UINT();
+            return res == v;
+        }
+
+        /**
+         * @brief 隐式转换为 UINT（小端：data[0] 为最低字节）
+         * 注意：协议位域解析不用此转换，而用 InfoBit::bytesToValueMsbFirst
+         */
+        operator UINT()
+        {
+            UINT res = 0;
+
+            for (int i = 0; i < Bits; ++i)
+            {
+                int offset = i * 8;
+                unsigned char value = data[i];
+                res |= (value << offset);
+            }
+
+            return res;
+        }
+
+        operator UINT() const
+        {
+            UINT res = 0;
+
+            for (int i = 0; i < Bits; ++i)
+            {
+                int offset = i * 8;
+                unsigned char value = data[i];
+                res |= (value << offset);
+            }
+
+            return res;
+        }
+    };
+}
+
+
+
+#pragma pack(push,1)
+struct data1
+{
+    MyUByte2 code : 10;
+    MyUByte2 S3 : 1;
+    MyUByte2 S2 : 1;
+    MyUByte2 S1 : 1;
+    MyUByte2 typeCode : 3;
+
+    void hton()
+    {
+    MyUByte2 temp;
+    memcpy(&temp, this, sizeof(InfoType));
+
+    temp = qToBigEndian(temp);
+    memcpy(this, &temp, sizeof(InfoType));
+    }
+
+    void ntoh()
+    {
+    MyUByte2 temp;
+    memcpy(&temp, this, sizeof(InfoType));
+
+    temp = qFromBigEndian(temp);
+    memcpy(this, &temp, sizeof(InfoType));
+    }
+};
+
+
+struct data2
+{
+    MyByte4 feild_1 : 4;
+    MyByte4 feild_2 : 4;
+
+    MyByte4 feild_3 : 4;
+    MyByte4 feild_4 : 4;
+
+    MyByte4 sysCode : 16;
+
+    void hton()
+    {
+    MyByte4 temp;
+    memcpy(&temp, this, sizeof(InfoSrcCode));
+
+    temp = qToBigEndian(temp);
+    memcpy(this, &temp, sizeof(InfoSrcCode));
+    }
+}
+
+void ntoh()
+{
+    MyByte4 temp;
+    memcpy(&temp, this, sizeof(InfoSrcCode));
+
+    temp = qFromBigEndian(temp);
+    memcpy(this, &temp, sizeof(InfoSrcCode));
+}

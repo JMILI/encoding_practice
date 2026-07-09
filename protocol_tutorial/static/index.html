@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UDP 协议位域教程实验台</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="page">
+    <nav class="site-nav">
+      <a data-path="/">交互实验台</a>
+      <span class="sep">|</span>
+      <a data-path="/guide">位域图解教程</a>
+    </nav>
+
+    <div class="route-card">
+      <strong>页面路由（点击跳转）</strong>
+      <ul class="route-list">
+        <li>交互实验台：<a class="route-link" data-path="/"></a></li>
+        <li>位域图解教程：<a class="route-link" data-path="/guide"></a></li>
+      </ul>
+      <p id="file-protocol-hint" class="file-hint" hidden>
+        当前为本地文件打开，链接已指向 <code>http://127.0.0.1:3000</code>。请先运行 <code>cargo run --bin web</code>。
+      </p>
+    </div>
+
+    <p class="quick-jump">
+      <a data-path="/guide">📖 先看位域图解教程（推荐）</a>
+    </p>
+
+    <h1>UDP 协议位域教程实验台（Web 版）</h1>
+    <p class="subtitle">支持大端编码、模拟 UDP 一次发送与按位发送、客户端小端环境解析校验</p>
+
+    <div class="panel">
+      <h2>协议定义（服务端）</h2>
+      <div class="grid">
+        <label for="msg_type">type (1B):</label>
+        <input id="msg_type" type="number" min="0" max="255" />
+
+        <label for="fc_hex">fc (hex, 可变长):</label>
+        <input id="fc_hex" type="text" />
+
+        <label for="data1_type_code">data1.typeCode(3b):</label>
+        <input id="data1_type_code" type="number" min="0" max="7" />
+
+        <label for="data1_code">data1.code(10b):</label>
+        <input id="data1_code" type="number" min="0" max="1023" />
+
+        <label>data1.s1/s2/s3:</label>
+        <div class="inline">
+          <label><input id="data1_s1" type="checkbox" /> s1</label>
+          <label><input id="data1_s2" type="checkbox" /> s2</label>
+          <label><input id="data1_s3" type="checkbox" /> s3</label>
+        </div>
+
+        <label>data2 feild_2/feild_1/feild_4/feild_3 (4b each):</label>
+        <div class="inline">
+          <input id="data2_feild_2" type="number" min="0" max="15" title="feild_2" />
+          <input id="data2_feild_1" type="number" min="0" max="15" title="feild_1" />
+          <input id="data2_feild_4" type="number" min="0" max="15" title="feild_4" />
+          <input id="data2_feild_3" type="number" min="0" max="15" title="feild_3" />
+        </div>
+
+        <label for="data2_sys_code">data2.sysCode(16b):</label>
+        <input id="data2_sys_code" type="number" min="0" max="65535" />
+      </div>
+
+      <div class="actions">
+        <button id="btn_build" type="button">生成二进制</button>
+        <button id="btn_random" type="button">自动生成测试数据</button>
+        <button id="btn_full" type="button">模拟 UDP 一次发送</button>
+        <button id="btn_prepare_bits" type="button">准备按位发送(单步模式)</button>
+        <button id="btn_step_bit" type="button">单步发送 1 位</button>
+        <button id="btn_finalize" type="button">完成按位帧并解析</button>
+      </div>
+      <p id="error" class="error"></p>
+    </div>
+
+    <div class="panel">
+      <h2>服务端结构化编码视图</h2>
+      <pre id="server_struct"></pre>
+    </div>
+
+    <div class="panel">
+      <h2>编码结果 / 位域说明（HEX + BIT）</h2>
+      <pre id="packet_hex"></pre>
+      <pre id="bit_desc"></pre>
+    </div>
+
+    <div class="panel">
+      <h2>网络传输过程（逐位）</h2>
+      <pre id="tx_flow"></pre>
+    </div>
+
+    <div class="panel">
+      <h2>客户端内存缓冲（按位组装成字节）</h2>
+      <pre id="client_mem"></pre>
+    </div>
+
+    <div class="panel">
+      <h2>结构体映射过程（memcpy + ntoh + 按声明顺序解包）</h2>
+      <pre id="client_struct"></pre>
+    </div>
+
+    <div class="panel">
+      <h2>位落位教学图（接收 bit → 字节 → data1/data2 字段）</h2>
+      <pre id="teach_panel"></pre>
+    </div>
+
+    <div class="panel">
+      <h2>客户端解析校验（最终语义）</h2>
+      <pre id="verify"></pre>
+    </div>
+
+    <div class="panel">
+      <h2>运行日志</h2>
+      <ul id="logs" class="logs"></ul>
+    </div>
+
+    <div class="route-card">
+      <strong>页面路由</strong>
+      <ul class="route-list">
+        <li><a class="route-link" data-path="/">返回交互实验台</a></li>
+        <li><a class="route-link" data-path="/guide">位域图解教程</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <script src="/static/nav.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

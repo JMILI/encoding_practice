@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UDP 协议位域教程 — 从字节流到结构体</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --panel: #121c2e;
+      --border: #2a3f5f;
+      --text: #d7ecff;
+      --muted: #8fb3d9;
+      --accent: #5ec8ff;
+      --warn: #ffb347;
+      --bad: #ff7b7b;
+      --good: #6ee7a8;
+      --code-bg: #0a1422;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; }
+    h1 { margin: 0 0 8px; color: var(--accent); font-size: 1.75rem; }
+    h2 { margin: 0 0 12px; font-size: 1.25rem; color: #a8dcff; }
+    h3 { margin: 16px 0 8px; font-size: 1.05rem; color: var(--muted); }
+    .lead { color: var(--muted); margin-bottom: 24px; border-left: 4px solid var(--accent); padding-left: 14px; }
+    nav.toc {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-bottom: 24px;
+    }
+    nav.toc ol { margin: 0; padding-left: 20px; }
+    nav.toc a { color: var(--accent); text-decoration: none; }
+    nav.toc a:hover { text-decoration: underline; }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .tip, .warn, .ok {
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin: 12px 0;
+      font-size: 0.95rem;
+    }
+    .tip { background: #132638; border-left: 4px solid var(--accent); }
+    .warn { background: #2a1f14; border-left: 4px solid var(--warn); }
+    .ok { background: #142a1f; border-left: 4px solid var(--good); }
+    pre, code {
+      font-family: "Fira Code", "Cascadia Code", Consolas, monospace;
+      font-size: 0.88rem;
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      overflow-x: auto;
+      margin: 12px 0;
+    }
+    .canvas-box {
+      background: #0a1422;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      margin: 14px 0;
+      overflow-x: auto;
+    }
+    canvas { display: block; max-width: 100%; margin: 0 auto; }
+    .canvas-caption {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-top: 8px;
+    }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .legend i {
+      width: 14px; height: 14px; border-radius: 3px; display: inline-block;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin: 12px 0;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      text-align: left;
+    }
+    th { background: #1a2840; color: var(--accent); }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin: 12px 0;
+    }
+    button, select {
+      background: #1a3a55;
+      color: var(--text);
+      border: 1px solid #3a6d9d;
+      border-radius: 8px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button:hover { background: #234a6a; }
+    button.active { background: #2d6a9d; border-color: var(--accent); }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+    footer { text-align: center; color: var(--muted); font-size: 0.85rem; margin-top: 24px; }
+    a { color: var(--accent); }
+    .site-nav {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 20px;
+      padding: 10px 14px;
+      background: #121c2e;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 0.95rem;
+    }
+    .site-nav a {
+      text-decoration: none;
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+    .site-nav a:hover { background: #1a3050; }
+    .site-nav a.active {
+      background: #1e4a6e;
+      color: #fff;
+      font-weight: 600;
+    }
+    .site-nav .sep { color: #4a6080; }
+    .route-card {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 20px;
+      font-size: 0.9rem;
+    }
+    .route-card strong { color: var(--muted); display: block; margin-bottom: 8px; }
+    .route-list { list-style: none; margin: 0; padding: 0; }
+    .route-list li { margin: 6px 0; }
+    .route-link {
+      color: var(--accent);
+      text-decoration: none;
+      font-family: monospace;
+      word-break: break-all;
+    }
+    .route-link:hover { text-decoration: underline; }
+    .route-link.active { color: var(--good); font-weight: 600; }
+    .file-hint { color: var(--warn); font-size: 0.85rem; margin-top: 6px; }
+    .quick-jump { margin: 0 0 16px; }
+    .quick-jump a {
+      display: inline-block;
+      padding: 8px 14px;
+      background: #1a3a55;
+      border: 1px solid #3a6d9d;
+      border-radius: 8px;
+      color: #d9f3ff;
+      text-decoration: none;
+    }
+    .quick-jump a:hover { background: #234a6a; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="site-nav">
+    <a data-path="/">交互实验台</a>
+    <span class="sep">|</span>
+    <a data-path="/guide">位域图解教程</a>
+  </nav>
+
+  <div class="route-card">
+    <strong>页面路由（点击跳转）</strong>
+    <ul class="route-list">
+      <li>交互实验台：<a class="route-link" data-path="/"></a></li>
+      <li>位域图解教程：<a class="route-link" data-path="/guide"></a></li>
+    </ul>
+    <p id="file-protocol-hint" class="file-hint" hidden>
+      当前为本地文件打开，链接已指向 <code>http://127.0.0.1:3000</code>。请先运行 <code>cargo run --bin web</code> 后点击跳转。
+    </p>
+  </div>
+
+  <p class="quick-jump">
+    <a data-path="/">🧪 去交互实验台动手练习</a>
+  </p>
+
+  <h1>UDP 协议位域教程</h1>
+  <p class="lead">
+    一句话：<strong>线上传的是大端字节流</strong>，<strong>结构体位域按「声明顺序」从 bit0 往高位排</strong>，
+    小端电脑上必须先 <code>ntoh</code> 再读字段，否则会把 <code>code</code> 解成完全错误的数。
+  </p>
+
+  <nav class="toc">
+    <strong>阅读顺序（建议从上到下）</strong>
+    <ol>
+      <li><a href="#s1">报文长什么样</a> — 整条 UDP 载荷</li>
+      <li><a href="#s2">C++ 结构体怎么写</a> — <code>#pragma pack(1)</code> + 位域</li>
+      <li><a href="#s3">两套坐标系</a> — 协议位号 vs 声明顺序</li>
+      <li><a href="#s4">data1 图解</a> — Canvas 看字节与位域</li>
+      <li><a href="#s5">data2 图解</a> — 4 字节同理</li>
+      <li><a href="#s6">常见误区</a> — 为什么不 ntoh 会得到 322 而不是 561</li>
+      <li><a href="#s7">动手练习</a> — <a data-path="/">联机交互实验台</a></li>
+    </ol>
+  </nav>
+
+  <!-- §1 报文结构 -->
+  <section id="s1">
+    <h2>§1 报文长什么样</h2>
+    <p>UDP 单播载荷按<strong>网络字节序（大端）</strong>依次发送：</p>
+    <pre>type (1B) | len (2B) | fc (变长) | data1 (2B) | data2 (4B)</pre>
+    <ul>
+      <li><code>len</code> = fc 字节数 + data1(2) + data2(4)</li>
+      <li><code>fc</code>：从左到右编码；每字节<strong>最低位</strong>为续位标志（1=还有下一字节，0=结束）</li>
+      <li><code>data1</code> / <code>data2</code>：紧凑位域，<code>#pragma pack(push,1)</code></li>
+    </ul>
+    <div class="canvas-box">
+      <canvas id="packetCanvas" width="960" height="200"></canvas>
+      <div class="canvas-caption">示例报文：type=0x11, len=9, fc=51 73 B8, data1, data2（与实验台默认数据一致）</div>
+    </div>
+  </section>
+
+  <!-- §2 C++ 结构体 -->
+  <section id="s2">
+    <h2>§2 C++ 结构体怎么写</h2>
+    <p>位域成员<strong>谁先写，谁占低位</strong>（bit0 起）。与协议文档里「typeCode 在 15~13 位」的<strong>语义位号</strong>是同一回事，只是看图角度不同。</p>
+
+    <h3>data1 — 2 字节</h3>
+    <pre>#pragma pack(push, 1)
+
+// 声明顺序 = 从 bit0 往高位排：code → S3 → S2 → S1 → typeCode
+struct Data1 {
+    unsigned int code     : 10;  // bit 0 ~ 9
+    unsigned int S3       : 1;   // bit 10
+    unsigned int S2       : 1;   // bit 11
+    unsigned int S1       : 1;   // bit 12
+    unsigned int typeCode : 3;   // bit 13 ~ 15
+
+    void hton() {
+        uint16_t raw;
+        memcpy(&raw, this, sizeof(raw));
+        raw = htons(raw);           // 主机 → 网络大端
+        memcpy(this, &raw, sizeof(raw));
+    }
+    void ntoh() {
+        uint16_t raw;
+        memcpy(&raw, this, sizeof(raw));
+        raw = ntohs(raw);           // 网络大端 → 主机
+        memcpy(this, &raw, sizeof(raw));
+    }
+};
+
+#pragma pack(pop)</pre>
+
+    <h3>data2 — 4 字节</h3>
+    <pre>#pragma pack(push, 1)
+
+struct Data2 {
+    unsigned int feild_1     : 4;   // bit 0 ~ 3
+    unsigned int feild_2      : 4;   // bit 4 ~ 7
+    unsigned int feild_3      : 4;   // bit 8 ~ 11
+    unsigned int feild_4      : 4;   // bit 12 ~ 15
+    unsigned int sysCode : 16;  // bit 16 ~ 31
+
+    void hton() {
+        uint32_t raw;
+        memcpy(&raw, this, sizeof(raw));
+        raw = htonl(raw);
+        memcpy(this, &raw, sizeof(raw));
+    }
+    void ntoh() {
+        uint32_t raw;
+        memcpy(&raw, this, sizeof(raw));
+        raw = ntohl(raw);
+        memcpy(this, &raw, sizeof(raw));
+    }
+};
+
+#pragma pack(pop)</pre>
+
+    <h3>整条消息（示意）</h3>
+    <pre>struct UdpPayload {
+    uint8_t  type;
+    uint16_t len;      // 发送前 htons(len)
+    uint8_t  fc[];     // 变长，此处略
+    Data1    data1;    // 发送前 data1.hton()
+    Data2    data2;    // 发送前 data2.hton()
+};</pre>
+
+    <div class="tip">
+      <strong>记忆口诀：</strong>组包时各字段填好 → 对多字节整数 <code>hton</code> → 按字节顺序发出去；
+      收包时先 <code>memcpy</code> 进结构体 → 对 data1/data2 调 <code>ntoh</code> → 再读位域成员。
+    </div>
+  </section>
+
+  <!-- §3 两套坐标系 -->
+  <section id="s3">
+    <h2>§3 两套坐标系：别搞混</h2>
+    <table>
+      <thead>
+        <tr><th>角度</th><th>怎么看</th><th>举例（data1）</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>协议文档位号</td>
+          <td>从左往右标 bit16…bit1，像画在纸上</td>
+          <td>typeCode 占 15~13，code 占 9~0</td>
+        </tr>
+        <tr>
+          <td>C++ 声明顺序</td>
+          <td>从 bit0 往上长：先声明的在低位</td>
+          <td>先 <code>code</code> 再 <code>typeCode</code></td>
+        </tr>
+        <tr>
+          <td>线上字节</td>
+          <td>大端：先传高字节</td>
+          <td>线上 <code>0x31 0x42</code> 表示 uint16 大端 0x3142</td>
+        </tr>
+        <tr>
+          <td>小端主机内存</td>
+          <td><code>ntohs</code> 后得到数值 0x4231</td>
+          <td>再按 bit0 起拆位域</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="warn">
+      <strong>最大坑：</strong>把线上字节 <code>31 42</code> 的二进制直接当「小端 uint16」去拆位域 —— 
+      会得到 code=322；正确做法是 <code>ntohs(0x3142) = 0x4231</code>，code=561。
+    </div>
+  </section>
+
+  <!-- §4 data1 canvas -->
+  <section id="s4">
+    <h2>§4 data1 图解（2 字节）</h2>
+    <p>示例：线上两字节为 <strong>0x31 0x42</strong>（大端 uint16 = 0x3142）。</p>
+
+    <div class="controls">
+      <button id="btnData1Correct" class="active">正确：先 ntohs 再拆位</button>
+      <button id="btnData1Wrong">错误：不转换直接拆位</button>
+    </div>
+
+    <div class="two-col">
+      <div class="canvas-box">
+        <canvas id="data1BytesCanvas" width="460" height="120"></canvas>
+        <div class="canvas-caption">线上字节序（大端传输顺序）</div>
+      </div>
+      <div class="canvas-box">
+        <canvas id="data1ValueCanvas" width="460" height="120"></canvas>
+        <div class="canvas-caption" id="data1ValueCaption">主机 uint16 = 0x4231（ntohs 之后）</div>
+      </div>
+    </div>
+
+    <div class="canvas-box">
+      <canvas id="data1BitsCanvas" width="960" height="180"></canvas>
+      <div class="canvas-caption">16 位位轨：色块 = 字段归属（bit0 在右侧）</div>
+      <div class="legend" id="data1Legend"></div>
+    </div>
+
+    <table id="data1Table">
+      <thead>
+        <tr><th>字段</th><th>位范围</th><th>值</th><th>提取公式</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <!-- §5 data2 canvas -->
+  <section id="s5">
+    <h2>§5 data2 图解（4 字节）</h2>
+    <p>示例：线上 <strong>0x12 0x34 0x56 0x78</strong> → <code>ntohl</code> → 主机 0x78563412。</p>
+
+    <div class="canvas-box">
+      <canvas id="data2BytesCanvas" width="700" height="120"></canvas>
+      <div class="canvas-caption">线上 4 字节（大端）</div>
+    </div>
+    <div class="canvas-box">
+      <canvas id="data2BitsCanvas" width="960" height="200"></canvas>
+      <div class="canvas-caption">32 位位轨（ntohl 后的语义；bit0 在右侧）</div>
+      <div class="legend" id="data2Legend"></div>
+    </div>
+    <table>
+      <thead>
+        <tr><th>字段</th><th>位范围</th><th>值</th><th>公式</th></tr>
+      </thead>
+      <tbody id="data2Table"></tbody>
+    </table>
+  </section>
+
+  <!-- §6 误区 -->
+  <section id="s6">
+    <h2>§6 常见误区：322 vs 561</h2>
+    <div class="canvas-box">
+      <canvas id="compareCanvas" width="960" height="260"></canvas>
+      <div class="canvas-caption">左：错误路径（不 ntoh）　右：正确路径（ntohs 后）</div>
+    </div>
+    <div class="ok">
+      <strong>正确：</strong>ntohs(0x3142) = 0x4231 → code = 0x4231 &amp; 0x3FF = <strong>561</strong>（二进制 10 0011 0001）<br>
+      <strong>错误：</strong>把 0x3142 当主机值 → 低 10 位 = <strong>322</strong>（二进制 01 0100 0010）
+    </div>
+    <pre>// 验证（小端 Linux / Windows）
+uint16_t net = 0x3142;          // 模拟已 memcpy 进结构体、尚未 ntoh 的原始 ushort 视图
+uint16_t host = ntohs(net);     // 0x4231
+printf("wrong code = %u\n", net & 0x3FF);   // 322
+printf("right code = %u\n", host & 0x3FF);  // 561</pre>
+  </section>
+
+  <!-- §7 练习 -->
+  <section id="s7">
+    <h2>§7 动手练习</h2>
+    <p>静态图解看完后，切换到 <a data-path="/"><strong>交互实验台</strong></a> 改字段、组包、模拟发送。</p>
+    <p>实验台与本文使用<strong>同一套位域声明顺序</strong>（code → S3 → S2 → S1 → typeCode）。</p>
+    <p class="quick-jump"><a data-path="/">→ 打开交互实验台</a></p>
+  </section>
+
+  <footer>
+    <a data-path="/">← 返回交互实验台</a> ·
+    <a data-path="/guide">刷新本页</a> ·
+    协议详情见 <code>docs/需求.md</code>
+  </footer>
+</div>
+
+<script src="/static/nav.js"></script>
+<script>
+(function () {
+  const COLORS = {
+    code: '#4fc3f7', S3: '#81c784', S2: '#ffb74d', S1: '#e57373', typeCode: '#ba68c8',
+    feild_1: '#4dd0e1', feild_2: '#aed581', feild_3: '#ff8a65', feild_4: '#f06292', sysCode: '#9575cd',
+    byte: '#2a4365', gap: '#1a2840', text: '#d7ecff', muted: '#8fb3d9', bad: '#ff6b6b', good: '#6ee7a8'
+  };
+
+  function setupCanvas(canvas, w, h) {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    return ctx;
+  }
+
+  function drawPacket() {
+    const canvas = document.getElementById('packetCanvas');
+    const ctx = setupCanvas(canvas, 960, 200);
+    const blocks = [
+      { label: 'type', hex: '11', w: 70, color: '#3d5a80' },
+      { label: 'len', hex: '00 09', w: 90, color: '#4a6fa5' },
+      { label: 'fc', hex: '51 73 B8', w: 130, color: '#5c7cba' },
+      { label: 'data1', hex: '55 B5', w: 90, color: '#6b8fd4' },
+      { label: 'data2', hex: '93 65 34 12', w: 150, color: '#7ba3e8' },
+    ];
+    let x = 24, y = 60;
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = '13px sans-serif';
+    ctx.fillText('发送方向 →', x, 28);
+    blocks.forEach(b => {
+      ctx.fillStyle = b.color;
+      ctx.strokeStyle = '#8fb3d9';
+      ctx.lineWidth = 1;
+      roundRect(ctx, x, y, b.w, 72, 8);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.fillText(b.label, x + 10, y + 24);
+      ctx.font = '12px monospace';
+      ctx.fillText(b.hex, x + 10, y + 48);
+      x += b.w + 8;
+    });
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = '12px sans-serif';
+    ctx.fillText('↑ 每个格子 = 线上连续字节（大端）', 24, 168);
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawBytes(canvasId, bytes, title) {
+    const canvas = document.getElementById(canvasId);
+    const ctx = setupCanvas(canvas, canvas.parentElement.clientWidth > 500 ? 460 : 340, 120);
+    const w = canvas.style.width.replace('px', '') | 0;
+    const bw = Math.min(100, (w - 48) / bytes.length);
+    let x = 20, y = 36;
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = '12px sans-serif';
+    ctx.fillText(title, 20, 22);
+    bytes.forEach((b, i) => {
+      ctx.fillStyle = COLORS.byte;
+      roundRect(ctx, x, y, bw, 56, 6);
+      ctx.fill();
+      ctx.strokeStyle = '#5a7aa0';
+      ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 14px monospace';
+      ctx.fillText('0x' + b.toString(16).toUpperCase().padStart(2, '0'), x + 12, y + 26);
+      ctx.font = '11px sans-serif';
+      ctx.fillText('byte' + i, x + 12, y + 44);
+      x += bw + 10;
+    });
+  }
+
+  const DATA1_FIELDS = [
+    { name: 'code', bits: 10, color: COLORS.code },
+    { name: 'S3', bits: 1, color: COLORS.S3 },
+    { name: 'S2', bits: 1, color: COLORS.S2 },
+    { name: 'S1', bits: 1, color: COLORS.S1 },
+    { name: 'typeCode', bits: 3, color: COLORS.typeCode },
+  ];
+
+  function extractFields(value, fields) {
+    let pos = 0;
+    return fields.map(f => {
+      const mask = (1 << f.bits) - 1;
+      const v = (value >> pos) & mask;
+      const from = pos;
+      pos += f.bits;
+      return { ...f, value: v, from, to: pos - 1 };
+    });
+  }
+
+  function drawBitRail(canvasId, value, bitWidth, fields, legendId) {
+    const canvas = document.getElementById(canvasId);
+    const ctx = setupCanvas(canvas, 960, bitWidth === 16 ? 180 : 200);
+    const margin = 30;
+    const railW = 900;
+    const bitW = railW / bitWidth;
+    const y0 = 50;
+
+    // bit index labels (MSB left)
+    for (let i = 0; i < bitWidth; i++) {
+      const bitIndex = bitWidth - 1 - i;
+      const x = margin + i * bitW;
+      if (bitIndex % 4 === 3 || bitIndex === 0 || bitIndex === bitWidth - 1) {
+        ctx.fillStyle = COLORS.muted;
+        ctx.font = '9px monospace';
+        ctx.fillText(String(bitIndex), x + 2, y0 - 8);
+      }
+    }
+
+    const parts = extractFields(value, fields);
+    parts.forEach(p => {
+      for (let b = p.from; b <= p.to; b++) {
+        const visualIndex = bitWidth - 1 - b;
+        const x = margin + visualIndex * bitW;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(x + 1, y0, bitW - 2, 56);
+        const bitVal = (value >> b) & 1;
+        ctx.fillStyle = '#111';
+        ctx.font = 'bold 11px monospace';
+        ctx.fillText(String(bitVal), x + bitW / 2 - 4, y0 + 32);
+      }
+      const fromVis = bitWidth - 1 - p.to;
+      const toVis = bitWidth - 1 - p.from;
+      const x1 = margin + fromVis * bitW;
+      const x2 = margin + (toVis + 1) * bitW;
+      ctx.fillStyle = '#fff';
+      ctx.font = '11px sans-serif';
+      ctx.fillText(p.name, (x1 + x2) / 2 - ctx.measureText(p.name).width / 2, y0 + 72);
+      ctx.fillStyle = COLORS.muted;
+      ctx.font = '10px monospace';
+      const valStr = p.value + ' (0x' + p.value.toString(16) + ')';
+      ctx.fillText(valStr, (x1 + x2) / 2 - ctx.measureText(valStr).width / 2, y0 + 88);
+    });
+
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = '11px sans-serif';
+    ctx.fillText('← 高位 (bit' + (bitWidth - 1) + ')', margin, y0 + 110);
+    ctx.fillText('低位 (bit0) →', margin + railW - 100, y0 + 110);
+
+    const leg = document.getElementById(legendId);
+    leg.innerHTML = parts.map(p =>
+      `<span><i style="background:${p.color}"></i>${p.name} [${p.from}~${p.to}]</span>`
+    ).join('');
+    return parts;
+  }
+
+  function fillData1Table(parts, formulas) {
+    const tbody = document.querySelector('#data1Table tbody');
+    tbody.innerHTML = parts.map((p, i) =>
+      `<tr><td>${p.name}</td><td>bit${p.from} ~ bit${p.to}</td><td><strong>${p.value}</strong></td><td><code>${formulas[i]}</code></td></tr>`
+    ).join('');
+  }
+
+  let data1Correct = true;
+  const NET_BYTES = [0x31, 0x42];
+  const HOST_VAL = 0x4231;
+  const WRONG_VAL = 0x3142;
+
+  function refreshData1() {
+    const val = data1Correct ? HOST_VAL : WRONG_VAL;
+    drawBytes('data1BytesCanvas', NET_BYTES, '线上顺序（不变）');
+    const vc = document.getElementById('data1ValueCanvas');
+    const ctx = setupCanvas(vc, 460, 120);
+    ctx.fillStyle = data1Correct ? COLORS.good : COLORS.bad;
+    roundRect(ctx, 20, 30, 400, 70, 10);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px sans-serif';
+    const label = data1Correct
+      ? `ntohs(0x3142) → 主机 uint16 = 0x${HOST_VAL.toString(16).toUpperCase()} (${HOST_VAL})`
+      : `错误：把 0x3142 直接当主机值 (${WRONG_VAL})`;
+    ctx.fillText(label, 36, 58);
+    ctx.font = '12px monospace';
+    ctx.fillText('二进制: ' + val.toString(2).padStart(16, '0').replace(/(.{4})/g, '$1 ').trim(), 36, 82);
+    document.getElementById('data1ValueCaption').textContent = data1Correct
+      ? '正确：先字节序转换，再拆位域'
+      : '错误：跳过 ntohs';
+
+    const parts = drawBitRail('data1BitsCanvas', val, 16, DATA1_FIELDS, 'data1Legend');
+    const formulas = [
+      'val & 0x3FF', '(val>>10)&1', '(val>>11)&1', '(val>>12)&1', '(val>>13)&7'
+    ];
+    fillData1Table(parts, formulas);
+  }
+
+  function drawData2() {
+    drawBytes('data2BytesCanvas', [0x12, 0x34, 0x56, 0x78], '线上大端 4 字节');
+    const val = 0x78563412; // ntohl(0x12345678)
+    const fields = [
+      { name: 'feild_1', bits: 4, color: COLORS.feild_1 },
+      { name: 'feild_2', bits: 4, color: COLORS.feild_2 },
+      { name: 'feild_3', bits: 4, color: COLORS.feild_3 },
+      { name: 'feild_4', bits: 4, color: COLORS.feild_4 },
+      { name: 'sysCode', bits: 16, color: COLORS.sysCode },
+    ];
+    const parts = drawBitRail('data2BitsCanvas', val, 32, fields, 'data2Legend');
+    const formulas = ['&0xF', '(>>4)&0xF', '(>>8)&0xF', '(>>12)&0xF', '(>>16)&0xFFFF'];
+    document.getElementById('data2Table').innerHTML = parts.map((p, i) =>
+      `<tr><td>${p.name}</td><td>bit${p.from}~${p.to}</td><td><strong>${p.value}</strong></td><td><code>val${formulas[i]}</code></td></tr>`
+    ).join('');
+  }
+
+  function drawCompare() {
+    const canvas = document.getElementById('compareCanvas');
+    const ctx = setupCanvas(canvas, 960, 260);
+    const drawPath = (x0, title, value, bad) => {
+      ctx.fillStyle = bad ? '#3d2020' : '#1a3328';
+      roundRect(ctx, x0, 20, 440, 220, 12);
+      ctx.fill();
+      ctx.strokeStyle = bad ? COLORS.bad : COLORS.good;
+      ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillText(title, x0 + 16, 48);
+      ctx.font = '12px monospace';
+      ctx.fillText('uint16 = 0x' + value.toString(16).toUpperCase(), x0 + 16, 72);
+      const code = value & 0x3ff;
+      ctx.fillText('code = ' + code + '  (bin ' + code.toString(2).padStart(10, '0') + ')', x0 + 16, 96);
+      const parts = extractFields(value, DATA1_FIELDS);
+      let y = 120;
+      parts.forEach(p => {
+        ctx.fillStyle = p.color;
+        ctx.fillRect(x0 + 16, y, 14, 14);
+        ctx.fillStyle = COLORS.text;
+        ctx.font = '11px sans-serif';
+        ctx.fillText(`${p.name} = ${p.value}`, x0 + 36, y + 11);
+        y += 22;
+      });
+    };
+    drawPath(24, '❌ 不 ntoh（错误）', WRONG_VAL, true);
+    drawPath(496, '✅ ntohs 后（正确）', HOST_VAL, false);
+  }
+
+  document.getElementById('btnData1Correct').onclick = function () {
+    data1Correct = true;
+    this.classList.add('active');
+    document.getElementById('btnData1Wrong').classList.remove('active');
+    refreshData1();
+  };
+  document.getElementById('btnData1Wrong').onclick = function () {
+    data1Correct = false;
+    this.classList.add('active');
+    document.getElementById('btnData1Correct').classList.remove('active');
+    refreshData1();
+  };
+
+  drawPacket();
+  refreshData1();
+  drawData2();
+  drawCompare();
+})();
+</script>
+</body>
+</html>
