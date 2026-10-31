@@ -2,7 +2,11 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
 
+/// 与图解教程示例报文一致：
+/// type=0x11, fc=51 73 B8, data1=55 B5, data2=93 65 34 12,
+/// data3=0xAD (lo=5,hi=21), data4=AB 55 55
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)] // 缺字段时用 Default（与图解示例一致），避免旧前端反序列化失败
 pub struct ProtocolForm {
     pub msg_type: u8,
     pub fc_hex: String,
@@ -16,6 +20,16 @@ pub struct ProtocolForm {
     pub data2_feild_4: u8,
     pub data2_feild_3: u8,
     pub data2_sys_code: u16,
+    /// data3: bit0~2
+    pub data3_lo: u8,
+    /// data3: bit3~7
+    pub data3_hi: u8,
+    /// data4: bit8~0 (9bit)
+    pub data4_info_c: u16,
+    /// data4: bit16~9 (8bit)
+    pub data4_info_b: u8,
+    /// data4: bit23~17 (7bit)
+    pub data4_info_a: u8,
 }
 
 impl Default for ProtocolForm {
@@ -33,6 +47,11 @@ impl Default for ProtocolForm {
             data2_feild_4: 0b0110,
             data2_feild_3: 0b0101,
             data2_sys_code: 0x1234,
+            data3_lo: 5,  // bit0~2
+            data3_hi: 21, // bit3~7 → 字节 0xAD
+            data4_info_c: 0x155,
+            data4_info_b: 0xAA,
+            data4_info_a: 0x55,
         }
     }
 }
@@ -42,8 +61,12 @@ pub struct PacketBuild {
     pub packet: Vec<u8>,
     pub host_data1_raw: u16,
     pub host_data2_raw: u32,
+    pub host_data3_raw: u8,
+    pub host_data4_raw: u32,
     pub data1_raw: u16,
     pub data2_raw: u32,
+    pub data3_raw: u8,
+    pub data4_be: [u8; 3],
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -61,6 +84,11 @@ pub struct ParsedPacket {
     pub data2_feild_4: u8,
     pub data2_feild_3: u8,
     pub data2_sys_code: u16,
+    pub data3_lo: u8,
+    pub data3_hi: u8,
+    pub data4_info_c: u16,
+    pub data4_info_b: u8,
+    pub data4_info_a: u8,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -110,6 +138,11 @@ pub fn random_form() -> ProtocolForm {
         data2_feild_4: rng.gen_range(0..=15),
         data2_feild_3: rng.gen_range(0..=15),
         data2_sys_code: rng.gen(),
+        data3_lo: rng.gen_range(0..=7),
+        data3_hi: rng.gen_range(0..=31),
+        data4_info_c: rng.gen_range(0..=0x1ff),
+        data4_info_b: rng.gen_range(0..=0xff),
+        data4_info_a: rng.gen_range(0..=0x7f),
     }
 }
 
@@ -126,14 +159,31 @@ pub fn build_response(form: &ProtocolForm) -> Result<BuildResponse, String> {
 pub fn simulate_full_transfer(form: &ProtocolForm) -> Result<SimulateFullResponse, String> {
     let pkt = build_packet(form)?;
     let packet = &pkt.packet;
-    let mut verify = format!(
-        "一次发送报文 HEX: {}\n",
-        to_hex(packet)
-    );
+    let mut verify = format!("一次发送报文 HEX: {}\n", to_hex(packet));
     match parse_packet(packet) {
         Ok(p) => {
             verify.push_str(&render_parsed(&p));
-            verify.push_str("\n校验: PASS");
+            let round_ok = p.msg_type == form.msg_type
+                && p.data1_code == form.data1_code
+                && p.data1_type_code == form.data1_type_code
+                && p.data1_s1 == form.data1_s1
+                && p.data1_s2 == form.data1_s2
+                && p.data1_s3 == form.data1_s3
+                && p.data2_feild_1 == form.data2_feild_1
+                && p.data2_feild_2 == form.data2_feild_2
+                && p.data2_feild_3 == form.data2_feild_3
+                && p.data2_feild_4 == form.data2_feild_4
+                && p.data2_sys_code == form.data2_sys_code
+                && p.data3_lo == (form.data3_lo & 0x7)
+                && p.data3_hi == (form.data3_hi & 0x1f)
+                && p.data4_info_a == (form.data4_info_a & 0x7f)
+                && p.data4_info_b == form.data4_info_b
+                && p.data4_info_c == (form.data4_info_c & 0x1ff);
+            verify.push_str(if round_ok {
+                "\n校验: PASS（解析字段与表单一致）"
+            } else {
+                "\n校验: FAIL（解析字段与表单不一致）"
+            });
         }
         Err(e) => {
             verify.push_str(&format!("解析失败: {e}\n校验: FAIL"));
@@ -190,7 +240,12 @@ pub fn finalize_bits(packet_hex: &str, bit_stream: &str) -> Result<BitFinalizeRe
     match parse_packet(&bytes) {
         Ok(parsed) => {
             verify.push_str(&render_parsed(&parsed));
-            verify.push_str("\n校验: PASS");
+            let match_hex = to_hex(&bytes) == to_hex(&packet);
+            verify.push_str(if match_hex {
+                "\n校验: PASS（按位重组 == 编码报文）"
+            } else {
+                "\n校验: FAIL（按位重组与编码报文不一致）"
+            });
         }
         Err(e) => verify.push_str(&format!("解析失败: {e}\n校验: FAIL")),
     }
@@ -241,6 +296,41 @@ fn parse_fc_hex(input: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+fn pack_data3(lo: u8, hi: u8) -> Result<u8, String> {
+    if lo > 7 {
+        return Err(format!("data3.lo 值 {lo} 超出 3 位范围"));
+    }
+    if hi > 31 {
+        return Err(format!("data3.hi 值 {hi} 超出 5 位范围"));
+    }
+    Ok((lo & 0x7) | ((hi & 0x1f) << 3))
+}
+
+fn pack_data4(info_c: u16, info_b: u8, info_a: u8) -> Result<u32, String> {
+    if info_c > 0x1ff {
+        return Err(format!("data4.infoC 值 {info_c} 超出 9 位范围"));
+    }
+    if info_a > 0x7f {
+        return Err(format!("data4.infoA 值 {info_a} 超出 7 位范围"));
+    }
+    Ok(((info_a as u32) << 17) | ((info_b as u32) << 9) | (info_c as u32))
+}
+
+fn data4_to_be_bytes(host: u32) -> [u8; 3] {
+    [
+        ((host >> 16) & 0xff) as u8,
+        ((host >> 8) & 0xff) as u8,
+        (host & 0xff) as u8,
+    ]
+}
+
+fn data4_from_be_bytes(b: [u8; 3]) -> u32 {
+    ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | (b[2] as u32)
+}
+
+/// 载荷尾部长：data1(2)+data2(4)+data3(1)+data4(3)=10
+const TAIL_LEN: usize = 2 + 4 + 1 + 3;
+
 pub fn build_packet(form: &ProtocolForm) -> Result<PacketBuild, String> {
     let fc = parse_fc_hex(&form.fc_hex)?;
     let host_data1 = pack_decl_order_u16(&[
@@ -257,28 +347,40 @@ pub fn build_packet(form: &ProtocolForm) -> Result<PacketBuild, String> {
         ("feild_4", 4, form.data2_feild_4 as u64),
         ("sysCode", 16, form.data2_sys_code as u64),
     ])?;
+    let host_data3 = pack_data3(form.data3_lo, form.data3_hi)?;
+    let host_data4 = pack_data4(form.data4_info_c, form.data4_info_b, form.data4_info_a)?;
+
+    // 与历史实现一致：声明序主机值 → swap → to_be_bytes，线上得到声明序的「低字节在前」布局
     let data1 = host_data1.swap_bytes();
     let data2 = host_data2.swap_bytes();
+    let data3 = host_data3; // 单字节无端序
+    let data4_be = data4_to_be_bytes(host_data4);
 
-    let payload_len = (fc.len() + 2 + 4) as u16;
+    let payload_len = (fc.len() + TAIL_LEN) as u16;
     let mut packet = Vec::with_capacity(payload_len as usize + 3);
     packet.push(form.msg_type);
     packet.extend_from_slice(&payload_len.to_be_bytes());
     packet.extend_from_slice(&fc);
     packet.extend_from_slice(&data1.to_be_bytes());
     packet.extend_from_slice(&data2.to_be_bytes());
+    packet.push(data3);
+    packet.extend_from_slice(&data4_be);
 
     Ok(PacketBuild {
         packet,
         host_data1_raw: host_data1,
         host_data2_raw: host_data2,
+        host_data3_raw: host_data3,
+        host_data4_raw: host_data4,
         data1_raw: data1,
         data2_raw: data2,
+        data3_raw: data3,
+        data4_be,
     })
 }
 
 pub fn parse_packet(packet: &[u8]) -> Result<ParsedPacket, String> {
-    if packet.len() < 1 + 2 + 2 + 4 {
+    if packet.len() < 1 + 2 + TAIL_LEN {
         return Err("报文长度不足".to_string());
     }
     let msg_type = packet[0];
@@ -301,15 +403,26 @@ pub fn parse_packet(packet: &[u8]) -> Result<ParsedPacket, String> {
             break;
         }
     }
-    if idx + 2 + 4 != packet.len() {
-        return Err("fc 长度与 data1/data2 边界不匹配".to_string());
+    if idx + TAIL_LEN != packet.len() {
+        return Err("fc 长度与 data1..data4 边界不匹配".to_string());
     }
 
     let net_data1 = u16::from_be_bytes([packet[idx], packet[idx + 1]]);
     idx += 2;
-    let net_data2 = u32::from_be_bytes([packet[idx], packet[idx + 1], packet[idx + 2], packet[idx + 3]]);
+    let net_data2 = u32::from_be_bytes([
+        packet[idx],
+        packet[idx + 1],
+        packet[idx + 2],
+        packet[idx + 3],
+    ]);
+    idx += 4;
+    let data3 = packet[idx];
+    idx += 1;
+    let data4_be = [packet[idx], packet[idx + 1], packet[idx + 2]];
+
     let host_data1 = net_data1.swap_bytes();
     let host_data2 = net_data2.swap_bytes();
+    let host_data4 = data4_from_be_bytes(data4_be);
 
     let data1_parts = unpack_decl_order_u16(
         host_data1,
@@ -317,7 +430,13 @@ pub fn parse_packet(packet: &[u8]) -> Result<ParsedPacket, String> {
     )?;
     let data2_parts = unpack_decl_order_u32(
         host_data2,
-        &[("feild_1", 4), ("feild_2", 4), ("feild_3", 4), ("feild_4", 4), ("sysCode", 16)],
+        &[
+            ("feild_1", 4),
+            ("feild_2", 4),
+            ("feild_3", 4),
+            ("feild_4", 4),
+            ("sysCode", 16),
+        ],
     )?;
 
     Ok(ParsedPacket {
@@ -334,15 +453,27 @@ pub fn parse_packet(packet: &[u8]) -> Result<ParsedPacket, String> {
         data2_feild_4: data2_parts[3] as u8,
         data2_feild_3: data2_parts[2] as u8,
         data2_sys_code: data2_parts[4] as u16,
+        data3_lo: data3 & 0x7,
+        data3_hi: (data3 >> 3) & 0x1f,
+        data4_info_c: (host_data4 & 0x1ff) as u16,
+        data4_info_b: ((host_data4 >> 9) & 0xff) as u8,
+        data4_info_a: ((host_data4 >> 17) & 0x7f) as u8,
     })
 }
 
 fn render_parsed(p: &ParsedPacket) -> String {
     format!(
-        "type=0x{:#04X}, len={}, fc=[{}], data1(typeCode={}, s1={}, s2={}, s3={}, code={}), data2(feild_2={}, feild_1={}, feild_4={}, feild_3={}, sysCode=0x{:04X})",
+        "type=0x{:02X}, len={}, fc=[{}], \
+         data1(typeCode={}, s1={}, s2={}, s3={}, code={}), \
+         data2(feild_2={}, feild_1={}, feild_4={}, feild_3={}, sysCode=0x{:04X}), \
+         data3(lo={}, hi={}), \
+         data4(infoA=0x{:02X}, infoB=0x{:02X}, infoC=0x{:03X})",
         p.msg_type,
         p.len,
-        p.fc.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" "),
+        p.fc.iter()
+            .map(|b| format!("{:02X}", b))
+            .collect::<Vec<_>>()
+            .join(" "),
         p.data1_type_code,
         p.data1_s1 as u8,
         p.data1_s2 as u8,
@@ -352,7 +483,12 @@ fn render_parsed(p: &ParsedPacket) -> String {
         p.data2_feild_1,
         p.data2_feild_4,
         p.data2_feild_3,
-        p.data2_sys_code
+        p.data2_sys_code,
+        p.data3_lo,
+        p.data3_hi,
+        p.data4_info_a,
+        p.data4_info_b,
+        p.data4_info_c
     )
 }
 
@@ -360,10 +496,23 @@ fn render_bit_layout(pkt: &PacketBuild) -> String {
     format!(
         "按声明顺序(主机序) data1=code,s3,s2,s1,typeCode => {:016b}\n\
          按声明顺序(主机序) data2=feild_1,feild_2,feild_3,feild_4,sysCode => {:032b}\n\
-         转网络序后 data1(be)={:016b}, data2(be)={:032b}\n\
-         语义位段(协议定义): data1 [15..13]=typeCode [12]=s1 [11]=s2 [10]=s3 [9..0]=code\n\
-         语义位段(协议定义): data2 [31..28]=feild_2 [27..24]=feild_1 [23..20]=feild_4 [19..16]=feild_3 [15..0]=sysCode",
-        pkt.host_data1_raw, pkt.host_data2_raw, pkt.data1_raw, pkt.data2_raw
+         按声明顺序(主机序) data3=lo(3),hi(5) => {:08b}\n\
+         按声明顺序(主机序) data4=infoC(9),infoB(8),infoA(7) => {:024b}\n\
+         转网络序后 data1(be)={:016b}, data2(be)={:032b}, data3={:02X}, data4(be)={:02X} {:02X} {:02X}\n\
+         语义位段: data1 [15..13]=typeCode [12]=s1 [11]=s2 [10]=s3 [9..0]=code\n\
+         语义位段: data2 [31..28]=feild_2 [27..24]=feild_1 [23..20]=feild_4 [19..16]=feild_3 [15..0]=sysCode\n\
+         语义位段: data3 [7..3]=hi [2..0]=lo\n\
+         语义位段: data4 [23..17]=infoA [16..9]=infoB [8..0]=infoC",
+        pkt.host_data1_raw,
+        pkt.host_data2_raw,
+        pkt.host_data3_raw,
+        pkt.host_data4_raw,
+        pkt.data1_raw,
+        pkt.data2_raw,
+        pkt.data3_raw,
+        pkt.data4_be[0],
+        pkt.data4_be[1],
+        pkt.data4_be[2]
     )
 }
 
@@ -522,9 +671,14 @@ fn render_server_protocol_table(form: &ProtocolForm, pkt: &PacketBuild) -> Strin
     let mut s = String::new();
     let _ = writeln!(s, "协议结构(网络传输顺序):");
     let _ = writeln!(s, "1) type  : 1B  = 0x{:02X}", form.msg_type);
-    let _ = writeln!(s, "2) len   : 2B  = {} (0x{:04X})", fc.len() + 6, (fc.len() + 6) as u16);
+    let _ = writeln!(
+        s,
+        "2) len   : 2B  = {} (0x{:04X})  [= fc + data1(2)+data2(4)+data3(1)+data4(3)]",
+        fc.len() + TAIL_LEN,
+        (fc.len() + TAIL_LEN) as u16
+    );
     let _ = writeln!(s, "3) fc    : {}B = {}", fc.len(), to_hex(&fc));
-    let _ = writeln!(s, "4) data1 : 2B  = 0x{:04X}", pkt.data1_raw);
+    let _ = writeln!(s, "4) data1 : 2B  host=0x{:04X}  net=0x{:04X}", pkt.host_data1_raw, pkt.data1_raw);
     let _ = writeln!(
         s,
         "   - code(10b)={} s3={} s2={} s1={} typeCode={}",
@@ -534,11 +688,30 @@ fn render_server_protocol_table(form: &ProtocolForm, pkt: &PacketBuild) -> Strin
         form.data1_s1 as u8,
         form.data1_type_code
     );
-    let _ = writeln!(s, "5) data2 : 4B  = 0x{:08X}", pkt.data2_raw);
+    let _ = writeln!(s, "5) data2 : 4B  host=0x{:08X}  net=0x{:08X}", pkt.host_data2_raw, pkt.data2_raw);
     let _ = writeln!(
         s,
         "   - feild_1={} feild_2={} feild_3={} feild_4={} sysCode=0x{:04X}",
         form.data2_feild_1, form.data2_feild_2, form.data2_feild_3, form.data2_feild_4, form.data2_sys_code
+    );
+    let _ = writeln!(s, "6) data3 : 1B  = 0x{:02X}", pkt.data3_raw);
+    let _ = writeln!(
+        s,
+        "   - lo[2:0]={} hi[7:3]={}",
+        form.data3_lo & 7,
+        form.data3_hi & 0x1f
+    );
+    let _ = writeln!(
+        s,
+        "7) data4 : 3B  host=0x{:06X}  net={:02X} {:02X} {:02X}",
+        pkt.host_data4_raw, pkt.data4_be[0], pkt.data4_be[1], pkt.data4_be[2]
+    );
+    let _ = writeln!(
+        s,
+        "   - infoA[23:17]=0x{:02X} infoB[16:9]=0x{:02X} infoC[8:0]=0x{:03X}",
+        form.data4_info_a & 0x7f,
+        form.data4_info_b,
+        form.data4_info_c & 0x1ff
     );
     let _ = writeln!(s, "\n完整报文(hex): {}", to_hex(&pkt.packet));
     s
@@ -548,7 +721,7 @@ fn render_struct_mapping_details(packet: &[u8]) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "Step A: 收到网络报文字节流");
     let _ = writeln!(s, "HEX: {}", to_hex(packet));
-    if packet.len() < 9 {
+    if packet.len() < 3 + TAIL_LEN {
         let _ = writeln!(s, "报文太短，无法映射。");
         return s;
     }
@@ -556,7 +729,7 @@ fn render_struct_mapping_details(packet: &[u8]) -> String {
     for (i, b) in packet.iter().enumerate() {
         let _ = writeln!(s, "mem[{i:02}] = 0x{b:02X}");
     }
-    let _ = writeln!(s, "\nStep C: 从 mem 中切片出 data1/data2 并 ntoh");
+    let _ = writeln!(s, "\nStep C: 切片 data1/data2/data3/data4 并 ntoh / fromNet");
     match parse_packet(packet) {
         Ok(p) => {
             let _ = writeln!(
@@ -569,9 +742,17 @@ fn render_struct_mapping_details(packet: &[u8]) -> String {
                 "data2 => feild_2={}, feild_1={}, feild_4={}, feild_3={}, sysCode=0x{:04X}",
                 p.data2_feild_2, p.data2_feild_1, p.data2_feild_4, p.data2_feild_3, p.data2_sys_code
             );
+            let _ = writeln!(s, "data3 => lo={}, hi={} (单字节，无需端序转换)", p.data3_lo, p.data3_hi);
+            let _ = writeln!(
+                s,
+                "data4 => infoA=0x{:02X}, infoB=0x{:02X}, infoC=0x{:03X}",
+                p.data4_info_a, p.data4_info_b, p.data4_info_c
+            );
             let _ = writeln!(s, "\nStep D: 按结构体声明顺序解包位域 (低位->高位)");
             let _ = writeln!(s, "data1: code -> s3 -> s2 -> s1 -> typeCode");
             let _ = writeln!(s, "data2: feild_1 -> feild_2 -> feild_3 -> feild_4 -> sysCode");
+            let _ = writeln!(s, "data3: lo(3) -> hi(5)");
+            let _ = writeln!(s, "data4: infoC(9) -> infoB(8) -> infoA(7)");
         }
         Err(e) => {
             let _ = writeln!(s, "解析失败: {e}");
@@ -612,38 +793,41 @@ fn render_teaching_story(packet: &[u8], received_bits: &str, total_bits: usize) 
     let _ = writeln!(s, "type=0x{msg_type:02X}, len={len}");
 
     if partial_bytes.len() < packet.len() {
-        let _ = writeln!(s, "\n报文未收全，data1/data2 还不能做完整 ntoh+位域映射。");
+        let _ = writeln!(s, "\n报文未收全，尾部字段还不能做完整 ntoh+位域映射。");
         return s;
     }
 
-    let _ = writeln!(s, "\n【Step 4: data1/data2 网络序 -> 主机序】");
+    let _ = writeln!(s, "\n【Step 4: data1..data4 网络序 -> 主机序】");
     if let Ok(parsed) = parse_packet(packet) {
         let full_hex = to_hex(packet);
         let _ = writeln!(s, "完整报文: {full_hex}");
-        let _ = writeln!(s, "data1 字段映射结果:");
         let _ = writeln!(
             s,
-            "  code={} | s3={} | s2={} | s1={} | typeCode={}",
+            "data1: code={} | s3={} | s2={} | s1={} | typeCode={}",
             parsed.data1_code,
             parsed.data1_s3 as u8,
             parsed.data1_s2 as u8,
             parsed.data1_s1 as u8,
             parsed.data1_type_code
         );
-        let _ = writeln!(s, "data2 字段映射结果:");
         let _ = writeln!(
             s,
-            "  feild_1={} | feild_2={} | feild_3={} | feild_4={} | sysCode=0x{:04X}",
+            "data2: feild_1={} | feild_2={} | feild_3={} | feild_4={} | sysCode=0x{:04X}",
             parsed.data2_feild_1,
             parsed.data2_feild_2,
             parsed.data2_feild_3,
             parsed.data2_feild_4,
             parsed.data2_sys_code
         );
-        let _ = writeln!(s, "\n【Step 5: 为什么结构体字段顺序看起来「反着写」】");
-        let _ = writeln!(s, "- 协议文档位号是「语义编号」(如 feild_2=32..29)");
-        let _ = writeln!(s, "- 位域声明顺序是「主机内存落位顺序」(低位字段通常先声明)");
-        let _ = writeln!(s, "- 再经过 ntoh/hton 字节序转换，最终与协议语义位号对齐");
+        let _ = writeln!(s, "data3: lo={} | hi={}", parsed.data3_lo, parsed.data3_hi);
+        let _ = writeln!(
+            s,
+            "data4: infoA=0x{:02X} | infoB=0x{:02X} | infoC=0x{:03X}",
+            parsed.data4_info_a, parsed.data4_info_b, parsed.data4_info_c
+        );
+        let _ = writeln!(s, "\n【Step 5: 位域声明顺序】");
+        let _ = writeln!(s, "- 谁先声明谁占低位(bit0 起)");
+        let _ = writeln!(s, "- 多字节字段先 ntoh/fromNet，再读位域成员");
     }
     s
 }
@@ -656,9 +840,38 @@ mod tests {
     fn round_trip_default_form() {
         let form = ProtocolForm::default();
         let pkt = build_packet(&form).unwrap();
+        // 图解示例：len=13, 总长 16
+        assert_eq!(pkt.packet.len(), 16);
+        assert_eq!(&pkt.packet[0..3], &[0x11, 0x00, 0x0D]);
+        assert_eq!(&pkt.packet[3..6], &[0x51, 0x73, 0xB8]);
+        assert_eq!(&pkt.packet[6..8], &[0x55, 0xB5]);
+        assert_eq!(&pkt.packet[8..12], &[0x93, 0x65, 0x34, 0x12]);
+        assert_eq!(pkt.packet[12], 0xAD);
+        assert_eq!(&pkt.packet[13..16], &[0xAB, 0x55, 0x55]);
+
         let parsed = parse_packet(&pkt.packet).unwrap();
         assert_eq!(parsed.msg_type, form.msg_type);
         assert_eq!(parsed.data1_code, form.data1_code);
+        assert_eq!(parsed.data1_type_code, form.data1_type_code);
         assert_eq!(parsed.data2_sys_code, form.data2_sys_code);
+        assert_eq!(parsed.data3_lo, form.data3_lo);
+        assert_eq!(parsed.data3_hi, form.data3_hi);
+        assert_eq!(parsed.data4_info_a, form.data4_info_a);
+        assert_eq!(parsed.data4_info_b, form.data4_info_b);
+        assert_eq!(parsed.data4_info_c, form.data4_info_c);
+    }
+
+    #[test]
+    fn random_round_trip() {
+        for _ in 0..20 {
+            let form = random_form();
+            let pkt = build_packet(&form).unwrap();
+            let parsed = parse_packet(&pkt.packet).unwrap();
+            assert_eq!(parsed.data1_code, form.data1_code);
+            assert_eq!(parsed.data3_lo, form.data3_lo & 7);
+            assert_eq!(parsed.data3_hi, form.data3_hi & 0x1f);
+            assert_eq!(parsed.data4_info_c, form.data4_info_c & 0x1ff);
+            assert_eq!(parsed.data4_info_a, form.data4_info_a & 0x7f);
+        }
     }
 }

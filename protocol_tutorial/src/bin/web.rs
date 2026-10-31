@@ -26,10 +26,12 @@ const STATIC_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/static");
 
 #[derive(Clone)]
 struct AppState {
-    index_html: Arc<String>,
-    guide_html: Arc<String>,
+    /// 每次请求从磁盘读 HTML，改 static/index.html / docs/tet.html 后刷新即可（无需为页面重编）
+    index_path: Arc<String>,
+    guide_path: Arc<String>,
 }
 
+const INDEX_HTML: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/static/index.html");
 const GUIDE_HTML: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/tet.html");
 
 #[derive(Deserialize)]
@@ -57,12 +59,23 @@ struct PrepareBitsResponse {
     bit_chars: String,
 }
 
-async fn index(State(state): State<AppState>) -> impl IntoResponse {
-    axum::response::Html(state.index_html.as_str().to_string())
+fn read_html(path: &str) -> Response {
+    match std::fs::read_to_string(path) {
+        Ok(html) => axum::response::Html(html).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("读取页面失败 {path}: {e}"),
+        )
+            .into_response(),
+    }
 }
 
-async fn guide(State(state): State<AppState>) -> impl IntoResponse {
-    axum::response::Html(state.guide_html.as_str().to_string())
+async fn index(State(state): State<AppState>) -> Response {
+    read_html(state.index_path.as_str())
+}
+
+async fn guide(State(state): State<AppState>) -> Response {
+    read_html(state.guide_path.as_str())
 }
 
 async fn api_random() -> Json<ProtocolForm> {
@@ -162,14 +175,18 @@ async fn main() {
         }
     };
 
-    let index_html = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/static/index.html"))
-        .expect("static/index.html 缺失");
-    let guide_html = std::fs::read_to_string(GUIDE_HTML)
-        .expect("docs/tet.html 缺失");
+    if !std::path::Path::new(INDEX_HTML).exists() {
+        eprintln!("缺少 {INDEX_HTML}");
+        std::process::exit(1);
+    }
+    if !std::path::Path::new(GUIDE_HTML).exists() {
+        eprintln!("缺少 {GUIDE_HTML}");
+        std::process::exit(1);
+    }
 
     let state = AppState {
-        index_html: Arc::new(index_html),
-        guide_html: Arc::new(guide_html),
+        index_path: Arc::new(INDEX_HTML.to_string()),
+        guide_path: Arc::new(GUIDE_HTML.to_string()),
     };
 
     let app = Router::new()

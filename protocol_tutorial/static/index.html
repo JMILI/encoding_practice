@@ -4,9 +4,23 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>UDP 协议位域教程实验台</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=4" />
 </head>
 <body>
+  <aside class="action-dock" aria-label="操作面板">
+    <div class="action-dock-title">操作</div>
+    <div class="actions">
+      <button id="btn_reset_example" type="button">恢复图解默认报文</button>
+      <button id="btn_build" type="button">生成二进制</button>
+      <button id="btn_random" type="button">自动生成测试数据</button>
+      <button id="btn_full" type="button">模拟 UDP 一次发送</button>
+      <button id="btn_prepare_bits" type="button">准备按位发送(单步模式)</button>
+      <button id="btn_step_bit" type="button">单步发送 1 位</button>
+      <button id="btn_finalize" type="button">完成按位帧并解析</button>
+    </div>
+    <p id="error" class="error"></p>
+  </aside>
+
   <div class="page">
     <nav class="site-nav">
       <a data-path="/">交互实验台</a>
@@ -14,67 +28,62 @@
       <a data-path="/guide">位域图解教程</a>
     </nav>
 
-    <div class="route-card">
-      <strong>页面路由（点击跳转）</strong>
-      <ul class="route-list">
-        <li>交互实验台：<a class="route-link" data-path="/"></a></li>
-        <li>位域图解教程：<a class="route-link" data-path="/guide"></a></li>
-      </ul>
-      <p id="file-protocol-hint" class="file-hint" hidden>
-        当前为本地文件打开，链接已指向 <code>http://127.0.0.1:3000</code>。请先运行 <code>cargo run --bin web</code>。
-      </p>
-    </div>
-
     <p class="quick-jump">
       <a data-path="/guide">📖 先看位域图解教程（推荐）</a>
     </p>
 
     <h1>UDP 协议位域教程实验台（Web 版）</h1>
-    <p class="subtitle">支持大端编码、模拟 UDP 一次发送与按位发送、客户端小端环境解析校验</p>
+    <p class="subtitle">布局：type|len|fc|data1(2B)|data2(4B)|data3(1B)|data4(3B) — 与图解教程一致</p>
+    <p id="example_hex_banner" class="example-banner">图解示例报文：11 00 0D 51 73 B8 55 B5 93 65 34 12 AD AB 55 55</p>
 
     <div class="panel">
       <h2>协议定义（服务端）</h2>
       <div class="grid">
         <label for="msg_type">type (1B):</label>
-        <input id="msg_type" type="number" min="0" max="255" />
+        <input id="msg_type" type="number" min="0" max="255" placeholder="17" />
 
         <label for="fc_hex">fc (hex, 可变长):</label>
-        <input id="fc_hex" type="text" />
+        <input id="fc_hex" type="text" placeholder="51 73 B8" />
 
-        <label for="data1_type_code">data1.typeCode(3b):</label>
-        <input id="data1_type_code" type="number" min="0" max="7" />
+        <label for="data1_type_code">data1.typeCode (3b):</label>
+        <input id="data1_type_code" type="number" min="0" max="7" placeholder="0~7" />
 
-        <label for="data1_code">data1.code(10b):</label>
-        <input id="data1_code" type="number" min="0" max="1023" />
+        <label for="data1_code">data1.code (10b):</label>
+        <input id="data1_code" type="number" min="0" max="1023" placeholder="0~1023" />
 
-        <label>data1.s1/s2/s3:</label>
+        <label>data1.s1 / s2 / s3:</label>
         <div class="inline">
           <label><input id="data1_s1" type="checkbox" /> s1</label>
           <label><input id="data1_s2" type="checkbox" /> s2</label>
           <label><input id="data1_s3" type="checkbox" /> s3</label>
         </div>
 
-        <label>data2 feild_2/feild_1/feild_4/feild_3 (4b each):</label>
+        <label>data2 feild_2 / 1 / 4 / 3 (各 4b):</label>
         <div class="inline">
-          <input id="data2_feild_2" type="number" min="0" max="15" title="feild_2" />
-          <input id="data2_feild_1" type="number" min="0" max="15" title="feild_1" />
-          <input id="data2_feild_4" type="number" min="0" max="15" title="feild_4" />
-          <input id="data2_feild_3" type="number" min="0" max="15" title="feild_3" />
+          <input id="data2_feild_2" type="number" min="0" max="15" title="feild_2" placeholder="f2" />
+          <input id="data2_feild_1" type="number" min="0" max="15" title="feild_1" placeholder="f1" />
+          <input id="data2_feild_4" type="number" min="0" max="15" title="feild_4" placeholder="f4" />
+          <input id="data2_feild_3" type="number" min="0" max="15" title="feild_3" placeholder="f3" />
         </div>
 
-        <label for="data2_sys_code">data2.sysCode(16b):</label>
-        <input id="data2_sys_code" type="number" min="0" max="65535" />
-      </div>
+        <label for="data2_sys_code">data2.sysCode (16b):</label>
+        <input id="data2_sys_code" type="number" min="0" max="65535" placeholder="0~65535" />
 
-      <div class="actions">
-        <button id="btn_build" type="button">生成二进制</button>
-        <button id="btn_random" type="button">自动生成测试数据</button>
-        <button id="btn_full" type="button">模拟 UDP 一次发送</button>
-        <button id="btn_prepare_bits" type="button">准备按位发送(单步模式)</button>
-        <button id="btn_step_bit" type="button">单步发送 1 位</button>
-        <button id="btn_finalize" type="button">完成按位帧并解析</button>
+        <label>data3 lo[2:0] / hi[7:3] (1B):</label>
+        <div class="inline">
+          <input id="data3_lo" type="number" min="0" max="7" title="lo bit0~2" placeholder="lo 0~7" />
+          <input id="data3_hi" type="number" min="0" max="31" title="hi bit3~7" placeholder="hi 0~31" />
+          <span class="field-hint">示例 lo=5 hi=21 → 线上 AD</span>
+        </div>
+
+        <label>data4 infoA / infoB / infoC (3B):</label>
+        <div class="inline">
+          <input id="data4_info_a" type="number" min="0" max="127" title="infoA[23:17] 7b" placeholder="A 0~127" />
+          <input id="data4_info_b" type="number" min="0" max="255" title="infoB[16:9] 8b" placeholder="B 0~255" />
+          <input id="data4_info_c" type="number" min="0" max="511" title="infoC[8:0] 9b" placeholder="C 0~511" />
+          <span class="field-hint">示例 A=0x55 B=0xAA C=0x155 → AB 55 55</span>
+        </div>
       </div>
-      <p id="error" class="error"></p>
     </div>
 
     <div class="panel">
@@ -104,7 +113,7 @@
     </div>
 
     <div class="panel">
-      <h2>位落位教学图（接收 bit → 字节 → data1/data2 字段）</h2>
+      <h2>位落位教学图（接收 bit → 字节 → data1..data4 字段）</h2>
       <pre id="teach_panel"></pre>
     </div>
 
@@ -118,16 +127,9 @@
       <ul id="logs" class="logs"></ul>
     </div>
 
-    <div class="route-card">
-      <strong>页面路由</strong>
-      <ul class="route-list">
-        <li><a class="route-link" data-path="/">返回交互实验台</a></li>
-        <li><a class="route-link" data-path="/guide">位域图解教程</a></li>
-      </ul>
-    </div>
   </div>
 
-  <script src="/static/nav.js"></script>
-  <script src="/static/app.js"></script>
+  <script src="/static/nav.js?v=2"></script>
+  <script src="/static/app.js?v=3"></script>
 </body>
 </html>
