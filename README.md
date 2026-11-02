@@ -33,8 +33,8 @@ type (1B) + len (2B) + fc (变长) + data1 (2B) + data2 (4B)
 ## 快速开始（交互实验台）
 
 ```bash
-# 从 code_jm 根目录
-cd encoding/encoding_practice/protocol_tutorial
+# 从 deployProject 根目录
+cd encoding_practice/protocol_tutorial
 cargo run --bin web
 ```
 
@@ -49,7 +49,7 @@ cargo run --bin web
 
 ## 与 leetcode 项目的关系
 
-`docs/需求.md` 中的 LeetCode Hot 100 列表是 [leetcode_hot100](../leetcode_hot100/) 与 [leetcode_acm](../leetcode_acm/) 生成脚本的题目来源。
+`docs/需求.md` 中的 LeetCode Hot 100 列表是当年生成题目数据用的原始需求（`leetcode_hot100/`、`leetcode_acm/` 两个仓库不在本部署目录里，也不参与构建与运行）。阅读时把它当作“需求原文/历史记录”即可，不是部署说明。
 
 ## 文档
 
